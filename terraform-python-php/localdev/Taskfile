@@ -1,0 +1,117 @@
+version: '3'
+
+silent: true
+
+vars:
+  CODE_DIR: '{{.CODE_DIR | default ""}}'
+  WORK_DIR: '/code/bitbucket/{{.CODE_DIR}}'
+  CONTAINER: 'localdev'
+  IMAGE: '{{.IMAGE | default .CONTAINER}}'
+
+tasks:
+  default:
+    desc: Show help
+    cmds:
+      - task --list
+
+  help:
+    desc: Show help
+    cmds:
+      - task --list
+
+  secrets:
+    desc: Copy secrets from host
+    cmds:
+      - echo "Copying secrets"
+      - mkdir -p secrets/.ssh
+      - mkdir -p secrets/.aws
+      - |
+        if [[ -f ~/.gitconfig || -d ~/.gitconfig ]]; then
+          cp ~/.gitconfig secrets/.gitconfig
+        fi
+        if [[ -d ~/.ssh ]]; then
+          cp ~/.ssh/* secrets/.ssh 2>/dev/null || true
+        fi
+        if [[ -d ~/.aws ]]; then
+          cp ~/.aws/* secrets/.aws 2>/dev/null || true
+        fi
+
+  build:
+    desc: Build image
+    cmds:
+      - |
+        if [[ ! -d "secrets" ]]; then
+          task secrets
+        fi
+        echo "Building image"
+        docker build -t {{.IMAGE}} .
+
+  build_clean:
+    desc: Build image with --no-cache
+    cmds:
+      - |
+        if [[ "$(docker images -q {{.IMAGE}})" ]]; then
+          docker image rm {{.IMAGE}}
+        fi
+        docker build --no-cache -t {{.IMAGE}} .
+
+  start:
+    desc: Start container (build image if needed)
+    cmds:
+      - |
+        if [[ -z "$(docker images -q {{.IMAGE}})" ]]; then
+          task build
+        fi
+        if [[ "$(docker ps -qa -f name={{.CONTAINER}} -f status=exited)" ]]; then
+          echo "Starting container"
+          docker start {{.CONTAINER}}
+        elif [[ -z "$(docker ps -qa -f name={{.CONTAINER}})" ]]; then
+          echo "Creating container"
+          docker run -dit --privileged -p 80:80 --name {{.CONTAINER}} --hostname {{.CONTAINER}} --volume {{.TASKFILE_DIR}}/../:/code {{.IMAGE}} &> /dev/null
+        fi
+
+  stop:
+    desc: Stop container
+    cmds:
+      - docker stop {{.CONTAINER}}
+
+  shell:
+    desc: Shell into container (build image, start container as needed)
+    cmds:
+      - |
+        if [[ -z "$(docker ps -q -f name={{.CONTAINER}})" ]]; then
+          task start
+        fi
+        docker exec -it -w {{.WORK_DIR}} {{.CONTAINER}} zsh
+
+  rm_container:
+    desc: Remove container
+    aliases: [--rm_container]
+    internal: true
+    cmds:
+      - |
+        if [[ "$(docker ps -q -f name={{.CONTAINER}} -f status=running)" ]]; then
+          echo "Stopping container"
+          docker stop {{.CONTAINER}} &> /dev/null
+        fi
+        if [[ "$(docker ps -qa -f name={{.CONTAINER}})" ]]; then
+          echo "Removing container"
+          docker rm -v {{.CONTAINER}} &> /dev/null
+        fi
+
+  rm_image:
+    desc: Remove image
+    aliases: [--rm_image]
+    internal: true
+    cmds:
+      - |
+        if [[ "$(docker images -q {{.IMAGE}})" ]]; then
+          echo "Removing image"
+          docker image rm {{.IMAGE}} &> /dev/null
+        fi
+
+  clean:
+    desc: Remove container and image
+    cmds:
+      - task: rm_container
+      - task: rm_image

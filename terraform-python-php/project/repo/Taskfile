@@ -1,0 +1,14 @@
+version: '3'
+
+silent: true
+
+vars:
+  CODE_DIR: '{{base .TASKFILE_DIR}}'
+
+includes:
+  localdev:
+    taskfile: ../../localdev/Taskfile.yml
+    dir: ../../localdev
+    flatten: true
+    vars:
+      CODE_DIR: '{{.CODE_DIR}}'
